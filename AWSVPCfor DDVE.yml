@@ -1,0 +1,173 @@
+
+    #### This Template will deploy the following 
+    #### Deploy:
+    ####   - VPC in Region EU-West-1
+    ####   - 2 X Private Subnets and 2 X Public Subnets - One each across two AZ's 
+    ####   - create 2 Routing tables for both private and public Subnets
+    ####   - spin up an Integnet gateway to allow traffic exit the VPC form the Public Subnets
+    ####   - Create an S3 bucket as a target DDVE Datastore, allowing user input to add a unique S3 bucket name. The bucket will be deployed in the region where the CF template was executed
+    ####   - Output of Template will generate S3 bucket name... Note.... this must be globally unique so chosse wisely or else the script will fail.
+    
+    
+    
+    Parameters:
+       BucketName: 
+        Type: String 
+    
+    Resources:
+      PubPrivateVPC:
+        Type: 'AWS::EC2::VPC'
+        Properties:
+          CidrBlock: 10.100.0.0/16
+          EnableDnsSupport: true
+          EnableDnsHostnames: true
+          Tags:
+             - Key: Name
+               Value: Dell-Demo-APEX-VPC
+     
+      PublicSubnet1:
+        Type: 'AWS::EC2::Subnet'
+        Properties:
+          VpcId: !Ref PubPrivateVPC
+          AvailabilityZone: eu-west-1a
+          CidrBlock: 10.100.100.0/24
+          MapPublicIpOnLaunch: true
+          Tags:
+            - Key: Name
+              Value: APEX-Public-AZ1-100
+     
+      PublicSubnet2:
+        Type: 'AWS::EC2::Subnet'
+        Properties:
+          VpcId: !Ref PubPrivateVPC
+          AvailabilityZone: eu-west-1b
+          CidrBlock: 10.100.110.0/24
+          MapPublicIpOnLaunch: true
+          Tags:
+            - Key: Name
+              Value: APEX-Public-AZ2-110
+     
+      PrivateSubnet1:
+        Type: 'AWS::EC2::Subnet'
+        Properties:
+          VpcId: !Ref PubPrivateVPC
+          AvailabilityZone: eu-west-1a
+          CidrBlock: 10.100.200.0/24
+          MapPublicIpOnLaunch: false
+          Tags:
+            - Key: Name
+              Value: APEX-Private-AZ1-200
+     
+      PrivateSubnet2:
+        Type: 'AWS::EC2::Subnet'
+        Properties:
+          VpcId: !Ref PubPrivateVPC
+          AvailabilityZone: eu-west-1b
+          CidrBlock: 10.100.210.0/24
+          MapPublicIpOnLaunch: false
+          Tags:
+            - Key: Name
+              Value: APEX-Private-AZ2-210
+      
+      InternetGateway:
+        Type: 'AWS::EC2::InternetGateway'
+        Properties:
+         Tags:
+            - Key: Name
+              Value: Dublin-VPC-IGW
+            - Key: Network
+              Value: Public
+      
+      GatewayToInternet:
+        Type: 'AWS::EC2::VPCGatewayAttachment'
+        Properties:
+          VpcId: !Ref PubPrivateVPC
+          InternetGatewayId: !Ref InternetGateway
+      
+#### Add Public Routes and associate to public subnets
+
+
+      PublicRouteTable:
+        Type: 'AWS::EC2::RouteTable'
+        Properties:
+          VpcId: !Ref PubPrivateVPC
+          Tags:
+            - Key: Network
+              Value: Public
+            - Key: Name
+              Value: APEX-Public-Route  
+              
+      PublicRoute:
+        Type: 'AWS::EC2::Route'
+        DependsOn: GatewayToInternet
+        Properties:
+          RouteTableId: !Ref PublicRouteTable
+          DestinationCidrBlock: 0.0.0.0/0
+          GatewayId: !Ref InternetGateway
+
+      PublicSubnet1RouteTableAssociation:
+        Type: 'AWS::EC2::SubnetRouteTableAssociation'
+        Properties:
+          SubnetId: !Ref PublicSubnet1
+          RouteTableId: !Ref PublicRouteTable
+     
+      PublicSubnet2RouteTableAssociation:
+        Type: 'AWS::EC2::SubnetRouteTableAssociation'
+        Properties:
+          SubnetId: !Ref PublicSubnet2
+          RouteTableId: !Ref PublicRouteTable
+          
+ #### Add Private Route and associate to private subnets
+ 
+      PrivateRouteTable:
+        Type: 'AWS::EC2::RouteTable'
+        Properties:
+          VpcId: !Ref PubPrivateVPC
+          Tags:
+            - Key: Network
+              Value: Private
+            - Key: Name
+              Value: APEX-Private-Route 
+              
+      PrivateSubnet1RouteTableAssociation:
+        Type: 'AWS::EC2::SubnetRouteTableAssociation'
+        Properties:
+          SubnetId: !Ref PrivateSubnet2
+          RouteTableId: !Ref PrivateRouteTable
+        
+     
+      PrivateSubnet2RouteTableAssociation:
+        Type: 'AWS::EC2::SubnetRouteTableAssociation'
+        Properties:
+          SubnetId: !Ref PrivateSubnet1
+          RouteTableId: !Ref PrivateRouteTable        
+          
+##### Create S3 Endpoint and attach to VPC
+
+      S3VPCENDPOINT:
+        Type: AWS::EC2::VPCEndpoint
+        Properties:
+          RouteTableIds:
+            - !Ref PrivateRouteTable
+          VpcEndpointType: Gateway
+          ServiceName: !Sub com.amazonaws.eu-west-1.s3
+          VpcId: !Ref PubPrivateVPC
+                  
+####### Create S3 Bucket, with user input to ensure unique bucket name is chosen
+          
+                      
+      APEXS3BUCKET:
+        Type: "AWS::S3::Bucket"
+        Properties:
+          BucketName: !Ref BucketName
+          
+    Outputs:
+      S3Bucket:
+        Description: Bucket Created using this template.
+        Value: !Ref APEXS3BUCKET      
+          
+
+       
+          
+          
+        
