@@ -1,0 +1,334 @@
+
+    #### This Template will deploy the following 
+    #### Deploy:
+    ####   - VPC in Region EU-West-1
+    ####   - 2 X Private Subnets and 2 X Public Subnets - One each across two AZ's 
+    ####   - create 2 Routing tables for both private and public Subnets
+    ####   - spin up an Integnet gateway to allow traffic exit the VPC form the Public Subnets
+    ####   - Create an S3 bucket as a target DDVE Datastore, allowing user input to add a unique S3 bucket name. The bucket will be deployed in the region where the CF template was executed
+    ####   - Output of Template will generate S3 bucket name... Note.... this must be globally unique so chosse wisely or else the script will fail.
+    
+    
+    
+    Parameters:
+       BucketName: 
+        Type: String
+        Description: Must be lowercase and globally unique            
+       KeyPair:
+        Type: String
+        Description: Keypair you manually created
+      
+    
+    Resources:
+      PubPrivateVPC:
+        Type: 'AWS::EC2::VPC'
+        Properties:
+          CidrBlock: 10.100.0.0/16
+          EnableDnsSupport: true
+          EnableDnsHostnames: true
+          Tags:
+             - Key: Name
+               Value: Dell-Demo-APEX-VPC
+     
+      PublicSubnet1:
+        Type: 'AWS::EC2::Subnet'
+        Properties:
+          VpcId: !Ref PubPrivateVPC
+          AvailabilityZone: eu-west-1a
+          CidrBlock: 10.100.100.0/24
+          MapPublicIpOnLaunch: true
+          Tags:
+            - Key: Name
+              Value: APEX-Public-AZ1-100
+     
+      PublicSubnet2:
+        Type: 'AWS::EC2::Subnet'
+        Properties:
+          VpcId: !Ref PubPrivateVPC
+          AvailabilityZone: eu-west-1b
+          CidrBlock: 10.100.110.0/24
+          MapPublicIpOnLaunch: true
+          Tags:
+            - Key: Name
+              Value: APEX-Public-AZ2-110
+     
+      PrivateSubnet1:
+        Type: 'AWS::EC2::Subnet'
+        Properties:
+          VpcId: !Ref PubPrivateVPC
+          AvailabilityZone: eu-west-1a
+          CidrBlock: 10.100.200.0/24
+          MapPublicIpOnLaunch: false
+          Tags:
+            - Key: Name
+              Value: APEX-Private-AZ1-200
+     
+      PrivateSubnet2:
+        Type: 'AWS::EC2::Subnet'
+        Properties:
+          VpcId: !Ref PubPrivateVPC
+          AvailabilityZone: eu-west-1b
+          CidrBlock: 10.100.210.0/24
+          MapPublicIpOnLaunch: false
+          Tags:
+            - Key: Name
+              Value: APEX-Private-AZ2-210
+      
+      InternetGateway:
+        Type: 'AWS::EC2::InternetGateway'
+        Properties:
+         Tags:
+            - Key: Name
+              Value: Dublin-VPC-IGW
+            - Key: Network
+              Value: Public
+      
+      GatewayToInternet:
+        Type: 'AWS::EC2::VPCGatewayAttachment'
+        Properties:
+          VpcId: !Ref PubPrivateVPC
+          InternetGatewayId: !Ref InternetGateway
+      
+#### Add Public Routes and associate to public subnets
+
+
+      PublicRouteTable:
+        Type: 'AWS::EC2::RouteTable'
+        Properties:
+          VpcId: !Ref PubPrivateVPC
+          Tags:
+            - Key: Network
+              Value: Public
+            - Key: Name
+              Value: APEX-Public-Route  
+              
+      PublicRoute:
+        Type: 'AWS::EC2::Route'
+        DependsOn: GatewayToInternet
+        Properties:
+          RouteTableId: !Ref PublicRouteTable
+          DestinationCidrBlock: 0.0.0.0/0
+          GatewayId: !Ref InternetGateway
+
+      PublicSubnet1RouteTableAssociation:
+        Type: 'AWS::EC2::SubnetRouteTableAssociation'
+        Properties:
+          SubnetId: !Ref PublicSubnet1
+          RouteTableId: !Ref PublicRouteTable
+     
+      PublicSubnet2RouteTableAssociation:
+        Type: 'AWS::EC2::SubnetRouteTableAssociation'
+        Properties:
+          SubnetId: !Ref PublicSubnet2
+          RouteTableId: !Ref PublicRouteTable
+          
+ #### Add Private Route and associate to private subnets
+ 
+      PrivateRouteTable:
+        Type: 'AWS::EC2::RouteTable'
+        Properties:
+          VpcId: !Ref PubPrivateVPC
+          Tags:
+            - Key: Network
+              Value: Private
+            - Key: Name
+              Value: APEX-Private-Route 
+              
+      PrivateSubnet1RouteTableAssociation:
+        Type: 'AWS::EC2::SubnetRouteTableAssociation'
+        Properties:
+          SubnetId: !Ref PrivateSubnet2
+          RouteTableId: !Ref PrivateRouteTable
+        
+     
+      PrivateSubnet2RouteTableAssociation:
+        Type: 'AWS::EC2::SubnetRouteTableAssociation'
+        Properties:
+          SubnetId: !Ref PrivateSubnet1
+          RouteTableId: !Ref PrivateRouteTable        
+          
+##### Create S3 Endpoint and attach to VPC
+
+      S3VPCENDPOINT:
+        Type: AWS::EC2::VPCEndpoint
+        Properties:
+          RouteTableIds:
+            - !Ref PrivateRouteTable
+          VpcEndpointType: Gateway
+          ServiceName: !Sub com.amazonaws.eu-west-1.s3
+          VpcId: !Ref PubPrivateVPC
+                  
+####### Create S3 Bucket, with user input to ensure unique bucket name is chosen
+          
+                      
+      APEXS3BUCKET:
+        Type: "AWS::S3::Bucket"
+        Properties:
+          BucketName: !Ref BucketName
+          
+          
+####### Create Security Group to allow RDP access to Bastion Host  
+
+
+      Secgroupbastion:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+           GroupName: "Bastion Security Group"
+           GroupDescription: "allow RDP from Internet to Windows bastion Host"
+           VpcId: !Ref PubPrivateVPC
+           SecurityGroupIngress:
+             - IpProtocol: tcp
+               FromPort: '3389'
+               ToPort: '3389'
+               CidrIp: 0.0.0.0/0
+           SecurityGroupEgress:
+             - IpProtocol: -1
+               CidrIp: 0.0.0.0/0              
+           
+          
+####### Create Windows Bastion Host, connected to Public Subnet      
+      
+      Bastionhost:
+        Type: 'AWS::EC2::Instance'
+        Properties:
+          ImageId: ami-020d2116b881c4921
+          InstanceType: t2.micro
+          KeyName: !Ref KeyPair
+          SubnetId: !Ref PublicSubnet1
+          SecurityGroupIds:
+            - Ref: Secgroupbastion 
+          Tags:
+            - Key: Name
+              Value: Bastionhost
+              
+######  Create IAM Policy and Role for attachment to DDVE EC2 instance during DDVE CF deployment stage 
+######  Using Inline Policy versus Managed Policy
+
+      S3Role:
+        Type: AWS::IAM::Role
+        Properties:
+          AssumeRolePolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Principal:
+                  Service:
+                    - "ec2.amazonaws.com"
+                Action:
+                  - "sts:AssumeRole"            
+          RoleName: S3-DDVE-Role  
+      
+      AttachedPolicy:
+        Type: AWS::IAM::Policy
+        Properties:
+          PolicyName: 'DDVE-Access-S3-Bucket'
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action:
+                - s3:ListBucket
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+              Resource:
+                - !Sub arn:aws:s3:::${APEXS3BUCKET}
+                - !Sub arn:aws:s3:::${APEXS3BUCKET}/*          
+          Roles: [!Ref 'S3Role'] 
+          
+      IAMInstancePolicy:
+        Type: AWS::IAM::InstanceProfile
+        Properties:
+          Path: /
+          Roles: [!Ref S3Role]
+          InstanceProfileName: S3-DDVE-Role          
+          
+########## Create Security Group for use in DDVE Cloudformation deployment
+########## Based on current Dell Tecnologies best practice, subject to change
+########## Of course you can add/delete inbound/outbound rules as you wish
+
+      Secgroupddve:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+           GroupName: "DDVE Security Group"
+           GroupDescription: "Security Group attached to DDVe Instance in Private subnet"
+           VpcId: !Ref PubPrivateVPC
+           SecurityGroupIngress:
+             - IpProtocol: tcp
+               FromPort: '22'
+               ToPort: '22'
+               CidrIp: 0.0.0.0/0
+             - IpProtocol: tcp
+               FromPort: '443'
+               ToPort: '443'
+               CidrIp: 0.0.0.0/0 
+             - IpProtocol: tcp
+               FromPort: '2049'
+               ToPort: '2049'
+               CidrIp: 0.0.0.0/0
+             - IpProtocol: tcp
+               FromPort: '2051'
+               ToPort: '2051'
+               CidrIp: 0.0.0.0/0 
+             - IpProtocol: tcp
+               FromPort: '2009'
+               ToPort: '2009'
+               CidrIp: 0.0.0.0/0               
+           SecurityGroupEgress:
+             - IpProtocol: UDP
+               FromPort: '123'
+               ToPort: '123'
+               CidrIp: 0.0.0.0/0          
+             - IpProtocol: tcp
+               FromPort: '443'
+               ToPort: '443'
+               CidrIp: 0.0.0.0/0 
+             - IpProtocol: tcp
+               FromPort: '2049'
+               ToPort: '2049'
+               CidrIp: 0.0.0.0/0
+             - IpProtocol: tcp
+               FromPort: '2051'
+               ToPort: '2051'
+               CidrIp: 0.0.0.0/0
+             - IpProtocol: tcp
+               FromPort: '3009'
+               ToPort: '3009'
+               CidrIp: 0.0.0.0/0 
+           Tags:
+             - Key: "Name"
+               Value: "DDVE Security vbreGroup"
+                     
+    Outputs:
+      S3Bucket:
+        Description: Bucket Created using this template.
+        Value: !Ref APEXS3BUCKET
+        
+      PublicIp:
+        Value:
+          Fn::GetAtt:
+            - Bastionhost
+            - PublicIp
+        Description: Bastion host IP.
+        
+      IAMRole:
+        Description: Text name for IAM Role used for DDVE to access S3
+        Value: S3-DDVE-Role
+        
+      DDVESGID:
+        Value:
+          Fn::GetAtt:
+            - Secgroupddve
+            - GroupId
+        Description: Security Group ID        
+        
+
+        
+        
+          
+
+       
+
+ 
+          
+          
+        
