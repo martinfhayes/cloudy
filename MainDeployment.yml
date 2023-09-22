@@ -7,6 +7,11 @@
     ####   - spin up an Integnet gateway to allow traffic exit the VPC form the Public Subnets
     ####   - Create an S3 bucket as a target DDVE Datastore, allowing user input to add a unique S3 bucket name. The bucket will be deployed in the region where the CF template was executed
     ####   - Output of Template will generate S3 bucket name... Note.... this must be globally unique so chosse wisely or else the script will fail.
+    ####   - Windows 2016 Bastion Host + Security Group allowing RDP only
+    ####   - Security Group Pre-Configured for future DDVE deployment
+    ####   - IAM Role and Inline Poliy configured for attachment to DDVE when deployed 
+    ####   - Generate Outputs to include S3 Bucket names, DDVE SG name, Bastion public IP address and IAM Role name
+    
     
     
     
